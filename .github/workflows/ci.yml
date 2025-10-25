@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race -count=1 -timeout=5m
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Build driverd
+        run: go build -o driverd ./cmd/driverd
+
+      - name: Start driverd (Unix socket)
+        run: |
+          set -euo pipefail
+          ./driverd -socket /tmp/runtime-driver.grpc -features echo,snapshot -verbose &
+          echo $! > driverd.pid
+          # Wait for socket to appear
+          for i in {1..50}; do
+            if [ -S /tmp/runtime-driver.grpc ]; then echo "socket ready"; break; fi
+            sleep 0.1
+          done
+
+      - name: Install grpcurl
+        run: |
+          go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Execute snapshot and verify artifact
+        run: |
+          set -euo pipefail
+          grpcurl -plaintext -unix /tmp/runtime-driver.grpc \
+            -d '{"instruction":"snapshot","subject_id":"vm-1","execution_id":"snap-ci"}' \
+            runtime.v1.RuntimeDriver/Execute | tee /tmp/execute.json
+          grep -q '/var/run/kuberisc/snaps/vm-1.img' /tmp/execute.json
+
+      - name: Stop driverd
+        if: always()
+        run: |
+          if [ -f driverd.pid ]; then kill $(cat driverd.pid) || true; fi
+
