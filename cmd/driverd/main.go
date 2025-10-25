@@ -23,7 +23,7 @@ import (
 
 func main() {
 	var (
-		sock  = flag.String("socket", "/var/run/runtime-driver.grpc", "unix socket path")
+		sock  = flag.String("socket", "/var/run/driverd/runtime-driver.grpc", "unix socket path")
 		feats = flag.String("features", "", "comma-separated feature list")
 		vmode = flag.Bool("verbose", false, "enable verbose logging")
 	)
