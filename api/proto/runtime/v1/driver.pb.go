@@ -26,11 +26,11 @@ type ExecuteRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// e.g. "snapshot"
 	Instruction string `protobuf:"bytes,1,opt,name=instruction,proto3" json:"instruction,omitempty"`
-	// VM/Pod runtime 对象 ID
+	// VM/Pod runtime object ID
 	SubjectId string `protobuf:"bytes,2,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
 	// arbitrary key-value parameters
 	Params map[string]string `protobuf:"bytes,3,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// 幂等 key
+	// Idempotence key
 	ExecutionId   string `protobuf:"bytes,4,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -250,7 +250,7 @@ const file_api_proto_runtime_v1_driver_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\x92\x01\n" +
 	"\rRuntimeDriver\x12A\n" +
 	"\aExecute\x12\x1a.runtime.v1.ExecuteRequest\x1a\x18.runtime.v1.ExecuteReply\"\x00\x12>\n" +
-	"\bDiscover\x12\x16.google.protobuf.Empty\x1a\x18.runtime.v1.Capabilities\"\x00B.Z,hackohio/driver/api/gen/runtime/v1;runtimev1b\x06proto3"
+	"\bDiscover\x12\x16.google.protobuf.Empty\x1a\x18.runtime.v1.Capabilities\"\x00BDZBgithub.com/WangQihao-Charlie/driver/api/proto/runtime/v1;runtimev1b\x06proto3"
 
 var (
 	file_api_proto_runtime_v1_driver_proto_rawDescOnce sync.Once

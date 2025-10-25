@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package runtime.v1;
 
-option go_package = "hackohio/driver/api/proto/runtime/v1;runtimev1";
+option go_package = "github.com/WangQihao-Charlie/driver/api/proto/runtime/v1;runtimev1";
 
 import "google/protobuf/empty.proto";
 
