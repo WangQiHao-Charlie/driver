@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	d "hackohio/driver/pkg/driver"
+	d "github.com/WangQiHao-Charlie/driver/pkg/driver"
 )
 
 func lookupOrSkip(t *testing.T, name string) string {

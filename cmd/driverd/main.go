@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	runtimev1 "hackohio/driver/api/proto/runtime/v1"
-	"hackohio/driver/internal/service"
-	"hackohio/driver/pkg/driver"
+	runtimev1 "github.com/WangQiHao-Charlie/driver/api/proto/runtime/v1"
+	"github.com/WangQiHao-Charlie/driver/internal/service"
+	"github.com/WangQiHao-Charlie/driver/pkg/driver"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -57,12 +57,12 @@ func main() {
 		features = append(features, splitComma(*feats)...)
 	}
 	echoPath, _ := exec.LookPath("echo")
-    routes := map[string][]string{
-        "echo": {echoPath, "{param:msg}", "{subject_id}"},
-        // Outputs artifact JSON as the last stdout line
-        // Example resolved: {"artifacts":{"snapshot":"/var/run/kuberisc/snaps/vm-1.img"}}
-        "snapshot": {echoPath, "{\"artifacts\":{\"snapshot\":\"/var/run/kuberisc/snaps/{subject_id}.img\"}}"},
-    }
+	routes := map[string][]string{
+		"echo": {echoPath, "{param:msg}", "{subject_id}"},
+		// Outputs artifact JSON as the last stdout line
+		// Example resolved: {"artifacts":{"snapshot":"/var/run/kuberisc/snaps/vm-1.img"}}
+		"snapshot": {echoPath, "{\"artifacts\":{\"snapshot\":\"/var/run/kuberisc/snaps/{subject_id}.img\"}}"},
+	}
 	router := driver.NewCommandRouter(routes)
 	impl := service.NewRuntimeDriverServer(
 		driver.NewTemplateDriver(driver.Config{AllowedBinaries: []string{echoPath}}, router, 2*time.Second),
