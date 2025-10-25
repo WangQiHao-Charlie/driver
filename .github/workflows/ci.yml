@@ -70,13 +70,12 @@ jobs:
       - name: Execute snapshot and verify artifact
         run: |
           set -euo pipefail
-          grpcurl -plaintext -unix /tmp/runtime-driver.grpc \
+          grpcurl -plaintext \
             -d '{"instruction":"snapshot","subject_id":"vm-1","execution_id":"snap-ci"}' \
-            runtime.v1.RuntimeDriver/Execute | tee /tmp/execute.json
+            unix:///tmp/runtime-driver.grpc runtime.v1.RuntimeDriver/Execute | tee /tmp/execute.json
           grep -q '/var/run/kuberisc/snaps/vm-1.img' /tmp/execute.json
 
       - name: Stop driverd
         if: always()
         run: |
           if [ -f driverd.pid ]; then kill $(cat driverd.pid) || true; fi
-
