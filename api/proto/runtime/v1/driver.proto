@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package runtime.v1;
+
+option go_package = "hackohio/driver/api/proto/runtime/v1;runtimev1";
+
+import "google/protobuf/empty.proto";
+
+// RuntimeDriver exposes execution and discovery for a runtime driver.
+service RuntimeDriver {
+  rpc Execute(ExecuteRequest) returns (ExecuteReply) {}
+  rpc Discover(google.protobuf.Empty) returns (Capabilities) {}
+}
+
+message ExecuteRequest {
+  // e.g. "snapshot"
+  string instruction = 1;
+  // VM/Pod runtime object ID
+  string subject_id = 2;
+  // arbitrary key-value parameters
+  map<string, string> params = 3;
+  // Idempotence key
+  string execution_id = 4;
+}
+
+message ExecuteReply {
+  int32 exit_code = 1;
+  string stdout_tail = 2;
+  string stderr_tail = 3;
+  // e.g. snapshot path
+  map<string, string> artifacts = 4;
+}
+
+message Capabilities {
+  // free-form features supported by this driver
+  repeated string features = 1;
+  // optional metadata for discovery
+  map<string, string> metadata = 2;
+}
