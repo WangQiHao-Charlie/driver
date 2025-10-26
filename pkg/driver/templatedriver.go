@@ -2,6 +2,7 @@ package driver
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "strings"
     "time"
@@ -38,6 +39,36 @@ func NewTemplateDriver(execCfg Config, router RouterFunc, defaultTimeout time.Du
 // Execute implements Driver by resolving the command via router and delegating
 // to the underlying ExecDriver.
 func (t *TemplateDriver) Execute(ctx context.Context, req ExecReq) (ExecResp, error) {
+    // Fast path for exec runtime: agent may pass rendered argv via params["_argv"] as JSON array string.
+    if raw, ok := req.Params["_argv"]; ok && strings.TrimSpace(raw) != "" {
+        var argv []string
+        if err := json.Unmarshal([]byte(raw), &argv); err != nil {
+            return ExecResp{}, fmt.Errorf("invalid _argv JSON: %w", err)
+        }
+        if len(argv) == 0 {
+            return ExecResp{}, fmt.Errorf("_argv is empty")
+        }
+        // Build downstream request and execute directly.
+        outReq := ExecReq{
+            Command:     argv,
+            Instruction: req.Instruction,
+            SubjectID:   req.SubjectID,
+            Params:      req.Params,
+            ExecutionID: req.ExecutionID,
+            Timeout:     req.Timeout,
+            NodeName:    req.NodeName,
+            Annotations: req.Annotations,
+        }
+        if outReq.Timeout == 0 {
+            if d, ok := parseTimeoutParam(req.Params); ok {
+                outReq.Timeout = d
+            } else if t.defaultTimeout > 0 {
+                outReq.Timeout = t.defaultTimeout
+            }
+        }
+        return t.exec.Execute(ctx, outReq)
+    }
+
     if t.router == nil {
         return ExecResp{}, fmt.Errorf("no router configured")
     }
@@ -173,4 +204,3 @@ func parseIntMillis(s string) (time.Duration, error) {
     }
     return time.Duration(n) * time.Millisecond, nil
 }
-

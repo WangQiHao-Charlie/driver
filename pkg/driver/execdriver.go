@@ -295,9 +295,12 @@ func (d *ExecDriver) isAllowedBinary(path string) bool {
         p = rp
     }
 
-    // Fast path: check static list
+    // Fast path: check static list (match exact, and symlink-resolved forms)
     for _, allowed := range d.cfg.AllowedBinaries {
-        if allowed == p {
+        if allowed == p || allowed == path {
+            return true
+        }
+        if ap, err := filepath.EvalSymlinks(allowed); err == nil && ap == p {
             return true
         }
     }
