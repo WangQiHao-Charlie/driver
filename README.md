@@ -25,6 +25,8 @@ This creates Go code in `api/proto/runtime/v1` (import path `hackohio/driver/api
 
 **Run the Daemon**
 - `go run ./cmd/driverd -socket /tmp/runtime-driver.grpc -features snapshot,foo`
+- Optional: provide an external allowlist file for permitted binaries:
+  - `go run ./cmd/driverd -socket /tmp/runtime-driver.grpc -allowlist /etc/kuberisc/driver.allow`
 
 **Implement Your Driver**
 - Use the provided exec-based driver: `pkg/driver.NewExecDriver(driver.Config{...})`.
@@ -57,6 +59,19 @@ This creates Go code in `api/proto/runtime/v1` (import path `hackohio/driver/api
   - `d := driver.NewExecDriver(driver.Config{AllowedBinaries: []string{"/usr/bin/ctr"}})`
   - `resp, err := d.Execute(ctx, driver.ExecReq{Command: []string{"/usr/bin/ctr","images","ls"}, Instruction: "list", SubjectID: "node1", ExecutionID: "abc-123", Timeout: 10*time.Second, NodeName: "node1"})`
   - `resp.ExitCode`, `resp.StdoutTail`, `resp.StderrTail`, `resp.Artifacts`
+
+**External Allowlist**
+- You can manage allowed binaries without recompiling by using a file-based allowlist.
+- Driver flag: `-allowlist /path/to/file`.
+- File format:
+  - One absolute path per line, e.g. `/usr/bin/ctr`
+  - Empty lines and lines starting with `#` are ignored
+  - Trailing inline comments after ` #` are ignored
+  - Symlinks are resolved for comparison
+- Behavior:
+  - Entries from the file are unioned with the static `AllowedBinaries` slice
+  - The file is checked every ~2s and reloaded when its mtime changes
+  - If the file is temporarily missing or unreadable, the previous set is kept
 
 **WASI Sandbox Example**
 - Runner: `pkg/wasi` provides `RunModule(ctx, wasi.Config)` to execute WASI modules in a preopened, sandboxed FS with env/args and tail capture.

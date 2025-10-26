@@ -22,12 +22,13 @@ import (
 )
 
 func main() {
-	var (
-		sock  = flag.String("socket", "/var/run/driverd/runtime-driver.grpc", "unix socket path")
-		feats = flag.String("features", "", "comma-separated feature list")
-		vmode = flag.Bool("verbose", false, "enable verbose logging")
-	)
-	flag.Parse()
+    var (
+        sock  = flag.String("socket", "/var/run/driverd/runtime-driver.grpc", "unix socket path")
+        feats = flag.String("features", "", "comma-separated feature list")
+        vmode = flag.Bool("verbose", false, "enable verbose logging")
+        allow = flag.String("allowlist", "", "path to file with allowed binaries (one absolute path per line)")
+    )
+    flag.Parse()
 
 	if *vmode {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -64,11 +65,15 @@ func main() {
 		"snapshot": {echoPath, "{\"artifacts\":{\"snapshot\":\"/var/run/kuberisc/snaps/{subject_id}.img\"}}"},
 	}
 	router := driver.NewCommandRouter(routes)
-	impl := service.NewRuntimeDriverServer(
-		driver.NewTemplateDriver(driver.Config{AllowedBinaries: []string{echoPath}}, router, 2*time.Second),
-		features,
-		map[string]string{"impl": "template"},
-	)
+    execCfg := driver.Config{AllowedBinaries: []string{echoPath}}
+    if *allow != "" {
+        execCfg.AllowedBinariesFile = *allow
+    }
+    impl := service.NewRuntimeDriverServer(
+        driver.NewTemplateDriver(execCfg, router, 2*time.Second),
+        features,
+        map[string]string{"impl": "template"},
+    )
 
 	// Register service with gRPC server
 	runtimev1.RegisterRuntimeDriverServer(grpcServer, impl)

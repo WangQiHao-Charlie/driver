@@ -20,8 +20,18 @@ import (
 
 // Config controls the behavior of ExecDriver.
 type Config struct {
-	// Absolute paths of allowed binaries for argv[0]. Example: "/usr/local/bin/fc-control".
-	AllowedBinaries []string
+    // Absolute paths of allowed binaries for argv[0]. Example: "/usr/local/bin/fc-control".
+    AllowedBinaries []string
+
+    // Optional path to a newline-separated allowlist file. Each non-empty,
+    // non-comment line must be an absolute path to an allowed binary. Lines
+    // beginning with '#' are treated as comments. If set, entries from this
+    // file are UNIONed with AllowedBinaries.
+    AllowedBinariesFile string
+
+    // Minimum interval between allowlist file reload checks. If zero, defaults
+    // to 2 seconds. The file is re-read only when its mtime changes.
+    AllowedBinariesReload time.Duration
 
 	// Concurrency control; number of concurrent execs.
 	MaxConcurrency int
@@ -42,17 +52,23 @@ type Config struct {
 }
 
 type ExecDriver struct {
-	cfg   Config
-	sema  chan struct{}
-	cache *respCache
+    cfg   Config
+    sema  chan struct{}
+    cache *respCache
 
-	// metrics
-	mActive   int64    // gauge
-	mSuccess  uint64   // counter
-	mDuration struct { // naive histogram: sum and count
-		sumMicros uint64
-		count     uint64
-	}
+    // metrics
+    mActive   int64    // gauge
+    mSuccess  uint64   // counter
+    mDuration struct { // naive histogram: sum and count
+        sumMicros uint64
+        count     uint64
+    }
+
+    // dynamic allowlist (file-backed)
+    allowMu        sync.RWMutex
+    allowSet       map[string]struct{}
+    allowLastMod   time.Time
+    allowLastCheck time.Time
 }
 
 // NewExecDriver creates a Driver that executes local binaries safely.
@@ -66,24 +82,31 @@ func NewExecDriver(cfg Config) *ExecDriver {
 	if cfg.StderrTailBytes <= 0 {
 		cfg.StderrTailBytes = 8 << 10
 	}
-	if cfg.TerminationGrace <= 0 {
-		cfg.TerminationGrace = 5 * time.Second
-	}
-	if cfg.CacheSize <= 0 {
-		cfg.CacheSize = 64
-	}
+    if cfg.TerminationGrace <= 0 {
+        cfg.TerminationGrace = 5 * time.Second
+    }
+    if cfg.AllowedBinariesReload <= 0 {
+        cfg.AllowedBinariesReload = 2 * time.Second
+    }
+    if cfg.CacheSize <= 0 {
+        cfg.CacheSize = 64
+    }
 	if cfg.CacheTTL <= 0 {
 		cfg.CacheTTL = 5 * time.Minute
 	}
 	if cfg.ArtifactOutDir == "" {
 		cfg.ArtifactOutDir = "/var/run/kuberisc/out"
 	}
-	d := &ExecDriver{
-		cfg:   cfg,
-		sema:  make(chan struct{}, cfg.MaxConcurrency),
-		cache: newRespCache(cfg.CacheSize, cfg.CacheTTL),
-	}
-	return d
+    d := &ExecDriver{
+        cfg:   cfg,
+        sema:  make(chan struct{}, cfg.MaxConcurrency),
+        cache: newRespCache(cfg.CacheSize, cfg.CacheTTL),
+    }
+    // Initialize allowlist cache if a file is configured
+    if cfg.AllowedBinariesFile != "" {
+        _ = d.reloadAllowlistIfNeeded(true)
+    }
+    return d
 }
 
 func (d *ExecDriver) Execute(ctx context.Context, req ExecReq) (ExecResp, error) {
@@ -106,9 +129,9 @@ func (d *ExecDriver) Execute(ctx context.Context, req ExecReq) (ExecResp, error)
 		}
 		resolved = p
 	}
-	if !d.isAllowedBinary(resolved) {
-		return ExecResp{}, fmt.Errorf("binary not allowed: %s", resolved)
-	}
+    if !d.isAllowedBinary(resolved) {
+        return ExecResp{}, fmt.Errorf("binary not allowed: %s", resolved)
+    }
 
 	// Concurrency gate
 	d.sema <- struct{}{}
@@ -266,17 +289,100 @@ func (d *ExecDriver) Execute(ctx context.Context, req ExecReq) (ExecResp, error)
 }
 
 func (d *ExecDriver) isAllowedBinary(path string) bool {
-	// Normalize path
-	p := path
-	if rp, err := filepath.EvalSymlinks(path); err == nil {
-		p = rp
-	}
-	for _, allowed := range d.cfg.AllowedBinaries {
-		if allowed == p {
-			return true
-		}
-	}
-	return false
+    // Normalize path to compare against allowlist set
+    p := path
+    if rp, err := filepath.EvalSymlinks(path); err == nil {
+        p = rp
+    }
+
+    // Fast path: check static list
+    for _, allowed := range d.cfg.AllowedBinaries {
+        if allowed == p {
+            return true
+        }
+    }
+
+    // Dynamic file-backed allowlist
+    if d.cfg.AllowedBinariesFile != "" {
+        _ = d.reloadAllowlistIfNeeded(false)
+        d.allowMu.RLock()
+        _, ok := d.allowSet[p]
+        d.allowMu.RUnlock()
+        if ok {
+            return true
+        }
+    }
+    return false
+}
+
+// reloadAllowlistIfNeeded refreshes the file-backed allowlist if enough time
+// has passed since the last check, and the file's mtime has changed.
+func (d *ExecDriver) reloadAllowlistIfNeeded(force bool) error {
+    if d.cfg.AllowedBinariesFile == "" {
+        return nil
+    }
+    now := time.Now()
+    d.allowMu.RLock()
+    lastCheck := d.allowLastCheck
+    d.allowMu.RUnlock()
+    if !force && now.Sub(lastCheck) < d.cfg.AllowedBinariesReload {
+        return nil
+    }
+    fi, err := os.Stat(d.cfg.AllowedBinariesFile)
+    if err != nil {
+        // If file missing temporarily, keep previous set
+        d.allowMu.Lock()
+        d.allowLastCheck = now
+        d.allowMu.Unlock()
+        return nil
+    }
+    modTime := fi.ModTime()
+    d.allowMu.RLock()
+    same := d.allowLastMod.Equal(modTime)
+    d.allowMu.RUnlock()
+    if !force && same {
+        d.allowMu.Lock()
+        d.allowLastCheck = now
+        d.allowMu.Unlock()
+        return nil
+    }
+    // Read and parse file
+    b, err := os.ReadFile(d.cfg.AllowedBinariesFile)
+    if err != nil {
+        d.allowMu.Lock()
+        d.allowLastCheck = now
+        d.allowMu.Unlock()
+        return nil
+    }
+    lines := strings.Split(string(b), "\n")
+    m := make(map[string]struct{}, len(lines))
+    for _, line := range lines {
+        s := strings.TrimSpace(line)
+        if s == "" || strings.HasPrefix(s, "#") {
+            continue
+        }
+        // Inline comments: strip trailing ' #' occurrences
+        if i := strings.Index(s, " #"); i >= 0 {
+            s = strings.TrimSpace(s[:i])
+            if s == "" {
+                continue
+            }
+        }
+        if !filepath.IsAbs(s) {
+            // ignore non-absolute for safety
+            continue
+        }
+        if rp, err := filepath.EvalSymlinks(s); err == nil {
+            s = rp
+        }
+        m[s] = struct{}{}
+    }
+    d.allowMu.Lock()
+    d.allowSet = m
+    d.allowLastMod = modTime
+    d.allowLastCheck = now
+    d.allowMu.Unlock()
+    return nil
 }
 
 func (d *ExecDriver) terminateProcessGroup(pid int) error {
